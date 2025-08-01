@@ -3,8 +3,8 @@ eSignature Document Validator MCP Server
 
 Tools:
 - analyze_pdf_signatures(path): Comprehensive analysis of PDF signatures (fields, signer info, validation)
-- summarize_pdf_content(path): Extracts and summarizes the text content of a PDF
 - add_signature_field(input_path, output_path, field_name, page, x, y, width, height): Adds a signature field to a PDF
+- organize_pdf_by_signature_state(file_path, base_folder): Moves PDF to appropriate folder based on signature state
 """
 
 from mcp.server.fastmcp import FastMCP
@@ -13,6 +13,7 @@ from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign.fields import SigFieldSpec, append_signature_field
 import os
 import glob
+import shutil
 
 mcp = FastMCP("esignature-validator")
 
@@ -54,49 +55,7 @@ def analyze_pdf_signatures(path: str) -> str:
     except Exception as e:
         return f"Error: {str(e)}"
 
-@mcp.tool()
-def summarize_pdf_content(path: str) -> str:
-    """Extracts and summarizes the text content of a PDF document."""
-    try:
-        reader = PdfReader(path)
-        text_content = ""
-        
-        for page in reader.pages:
-            text_content += page.extract_text() + " "
-        
-        if not text_content.strip():
-            return "No text content found in PDF"
-        
-        # Clean up text
-        text_content = " ".join(text_content.strip().split())
-        
-        # Create a simple summary (first 200 chars + key info)
-        if len(text_content) > 200:
-            summary = text_content[:200] + "..."
-        else:
-            summary = text_content
-        
-        # Add basic document info
-        result = [f"Document: {os.path.basename(path)}"]
-        result.append(f"Pages: {len(reader.pages)}")
-        result.append(f"Content preview: {summary}")
-        
-        # Look for common document types
-        text_lower = text_content.lower()
-        if "agreement" in text_lower or "contract" in text_lower:
-            result.append("Type: Contract/Agreement")
-        elif "invoice" in text_lower or "bill" in text_lower:
-            result.append("Type: Invoice/Billing")
-        elif "application" in text_lower or "form" in text_lower:
-            result.append("Type: Application/Form")
-        else:
-            result.append("Type: General Document")
-        
-        return "\n".join(result)
-        
-    except Exception as e:
-        return f"Error: {str(e)}"
-
+  
 @mcp.tool()
 def add_signature_field(input_path: str, output_path: str) -> str:
     """Adds a signature field to a PDF document."""
@@ -113,6 +72,48 @@ def add_signature_field(input_path: str, output_path: str) -> str:
                 writer.write(outf)
         
         return f"Signature field Kevin's Signature added to {os.path.basename(output_path)}"
+        
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@mcp.tool()
+def organize_pdf_by_signature_state(file_path: str, base_folder: str) -> str:
+    """Moves PDF to appropriate folder based on signature state:
+    - 'no_signature_fields': Document has no signature fields
+    - 'unsigned_fields': Document has signature fields but they're not signed
+    - 'signed': Document has signed signature fields
+    """
+    try:
+        # Check if file exists
+        if not os.path.exists(file_path):
+            return f"Error: File {file_path} does not exist"
+        
+        # Analyze the PDF
+        reader = PdfReader(file_path)
+        fields = reader.get_fields()
+        
+        # Determine the state (assuming 0 or 1 signature fields)
+        if not fields:
+            state = "no_signature_fields"
+        else:
+            sig_fields = [k for k, v in fields.items() if v.get('/FT') == '/Sig']
+            if not sig_fields:
+                state = "no_signature_fields"
+            else:
+                # Check if the signature field is signed
+                sig_field_name = sig_fields[0]  # Assume only one signature field
+                sig_field_data = fields[sig_field_name]
+                if '/V' in sig_field_data and sig_field_data['/V']:
+                    state = "signed"
+                else:
+                    state = "unsigned_fields"
+        
+        # Move the file (folders assumed to exist)
+        filename = os.path.basename(file_path)
+        destination = os.path.join(base_folder, state, filename)
+        shutil.move(file_path, destination)
+        
+        return f"Moved {filename} to {state} folder (State: {state})"
         
     except Exception as e:
         return f"Error: {str(e)}"
