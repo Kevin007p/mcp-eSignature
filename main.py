@@ -25,6 +25,8 @@ def find_file_in_organized_folders(filename):
     for path in possible_paths:
         if os.path.exists(path):
             return path
+        
+    # since the paths exist, it'll never return None
     return None
 
 
@@ -33,20 +35,18 @@ def analyze_signature_state(pdf_path):
     reader = PdfReader(pdf_path)
     fields = reader.get_fields()
     
-    if not fields:
-        return "no_signature_fields"
+    # Look for the first signature field
+    for field_name, field_data in fields.items():
+        field_type = field_data.get('/FT') # /FT is the field type
+        if field_type == '/Sig':
+            # Found a signature field. now just check if its signed
+            if '/V' in field_data and field_data['/V']: # first part checks if the field has a value, second part checks if the value is not empty
+                return "signed"
+            else:
+                return "unsigned_fields"
     
-    sig_fields = [k for k, v in fields.items() if v.get('/FT') == '/Sig']
-    if not sig_fields:
-        return "no_signature_fields"
-    
-    # Check if the signature field is signed
-    sig_field_name = sig_fields[0]  # Assume only one signature field
-    sig_field_data = fields[sig_field_name]
-    if '/V' in sig_field_data and sig_field_data['/V']:
-        return "signed"
-    else:
-        return "unsigned_fields"
+    # No signature fields found
+    return "no_signature_fields"
 
 
 ### RESOURCES ###
@@ -93,7 +93,13 @@ def analyze_pdf_signatures(path: str) -> str:
     if not fields:
         return "No form fields found"
     
-    sig_fields = [k for k, v in fields.items() if v.get('/FT') == '/Sig']
+    # Find all signature fields in the PDF
+    sig_fields = []
+    for field_name, field_data in fields.items():
+        field_type = field_data.get('/FT')
+        if field_type == '/Sig':
+            sig_fields.append(field_name)
+    
     if not sig_fields:
         return "No signature fields found"
     
